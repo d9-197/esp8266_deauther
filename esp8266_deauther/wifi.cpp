@@ -12,10 +12,11 @@ extern "C" {
 
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
-#include <ESP8266WebServer.h>
 #include <DNSServer.h>
 #include <ESP8266mDNS.h>
 #include <LittleFS.h>
+#include <ESPAsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 
 #include "language.h"
 #include "debug.h"
@@ -53,7 +54,7 @@ namespace wifi {
     ap_settings_t ap_settings;
 
     // Server and other global objects
-    ESP8266WebServer server(80);
+    AsyncWebServer server(80);
     DNSServer dns;
     IPAddress ip(192, 168, 4, 1);
     IPAddress netmask(255, 255, 255, 0);
@@ -104,13 +105,13 @@ namespace wifi {
         ap_settings.captive_portal = captivePortal;
     }
     
-    void handleFileList() {
-        if (!server.hasArg("dir")) {
-            server.send(500, str(W_TXT), str(W_BAD_ARGS));
+    void handleFileList(AsyncWebServerRequest* request) {
+        if (!request->hasArg("dir")) {
+            request->send(500, "text/plain", "BAD ARGS");
             return;
         }
 
-        String path = server.arg("dir");
+        String path = request->arg("dir");
         // debugF("handleFileList: ");
         // debugln(path);
 
@@ -133,29 +134,29 @@ namespace wifi {
             entry.close();
         }
 
-        output += CLOSE_BRACKET;
-        server.send(200, str(W_JSON).c_str(), output);
+        output += '}';
+        request->send(200, "application/json", output);
     }
 
     String getContentType(String filename) {
-        if (server.hasArg("download")) return String(F("application/octet-stream"));
-        else if (filename.endsWith(str(W_DOT_GZIP))) filename = filename.substring(0, filename.length() - 3);
-        else if (filename.endsWith(str(W_DOT_HTM))) return str(W_HTML);
-        else if (filename.endsWith(str(W_DOT_HTML))) return str(W_HTML);
-        else if (filename.endsWith(str(W_DOT_CSS))) return str(W_CSS);
-        else if (filename.endsWith(str(W_DOT_JS))) return str(W_JS);
-        else if (filename.endsWith(str(W_DOT_PNG))) return str(W_PNG);
-        else if (filename.endsWith(str(W_DOT_GIF))) return str(W_GIF);
-        else if (filename.endsWith(str(W_DOT_JPG))) return str(W_JPG);
-        else if (filename.endsWith(str(W_DOT_ICON))) return str(W_ICON);
-        else if (filename.endsWith(str(W_DOT_XML))) return str(W_XML);
-        else if (filename.endsWith(str(W_DOT_PDF))) return str(W_XPDF);
-        else if (filename.endsWith(str(W_DOT_ZIP))) return str(W_XZIP);
-        else if (filename.endsWith(str(W_DOT_JSON))) return str(W_JSON);
-        else return str(W_TXT);
+        //if (server.hasArg("download")) return String(F("application/octet-stream"));
+        /*else */if (filename.endsWith(".gz")) filename = filename.substring(0, filename.length() - 3);
+        else if (filename.endsWith(".htm")) return "text/html";
+        else if (filename.endsWith(".html")) return "text/html";
+        else if (filename.endsWith(".css")) return "text/css";
+        else if (filename.endsWith(".js")) return "application/javascript";
+        else if (filename.endsWith(".png")) return "image/png";
+        else if (filename.endsWith(".gif")) return "image/gif";
+        else if (filename.endsWith(".jpg")) return "image/jpeg";
+        else if (filename.endsWith(".ico")) return "image/x-icon";
+        else if (filename.endsWith(".xml")) return "text/xml";
+        else if (filename.endsWith(".pdf")) return "application/x-pdf";
+        else if (filename.endsWith(".zip")) return "application/x-zip";
+        else if (filename.endsWith(".json")) return "application/json";
+        else return "text/plain";
     }
     
-    bool handleFileRead(String path) {
+    bool handleFileRead(AsyncWebServerRequest* request, String path) {
         // prnt(W_AP_REQUEST);
         // prnt(path);
 
@@ -165,28 +166,27 @@ namespace wifi {
         String contentType = getContentType(path);
 
         if (!LittleFS.exists(path)) {
-            if (LittleFS.exists(path + str(W_DOT_GZIP))) path += str(W_DOT_GZIP);
+            if (LittleFS.exists(path + ".gz")) path += ".gz";
             else if (LittleFS.exists(String(ap_settings.path) + path)) path = String(ap_settings.path) + path;
-            else if (LittleFS.exists(String(ap_settings.path) + path + str(W_DOT_GZIP))) path = String(ap_settings.path) + path + str(W_DOT_GZIP);
+            else if (LittleFS.exists(String(ap_settings.path) + path + ".gz")) path = String(ap_settings.path) + path + ".gz";
             else {
                 // prntln(W_NOT_FOUND);
                 return false;
             }
         }
 
-        File file = LittleFS.open(path, "r");
-        server.streamFile(file, contentType);
-        file.close();
+        request->send(LittleFS, path, contentType);
         // prnt(SPACE);
         // prntln(W_OK);
 
         return true;
     }
 
-    void sendProgmem(const char* ptr, size_t size, const char* type) {
-        server.sendHeader("Content-Encoding", "gzip");
-        server.sendHeader("Cache-Control", "max-age=86400");
-        server.send_P(200, str(type).c_str(), ptr, size);
+    void sendProgmem(AsyncWebServerRequest* request, const char* ptr, size_t size, const char* type) {
+        AsyncWebServerResponse* response = request->beginResponse_P(200, type, ptr);
+        response->addHeader("Content-Encoding", "gzip");
+        response->addHeader("Cache-Control", "max-age=86400");
+        request->send(response);
     }
 
     // ===== PUBLIC ====== //
@@ -195,7 +195,7 @@ namespace wifi {
         setPath("/web");
         setSSID(settings::getAccessPointSettings().ssid);
         setPassword(settings::getAccessPointSettings().password);
-        setChannel(1);
+        setChannel(settings::getWifiSettings().channel);
         setHidden(settings::getAccessPointSettings().hidden);
         setCaptivePortal(settings::getWebSettings().captive_portal);
 
@@ -212,11 +212,11 @@ namespace wifi {
     String getMode() {
         switch (mode) {
             case wifi_mode_t::off:
-                return W_MODE_OFF;
+                return "OFF";
             case wifi_mode_t::ap:
-                return W_MODE_AP;
+                return "AP";
             case wifi_mode_t::st:
-                return W_MODE_ST;
+                return "STATION";
             default:
                 return String();
         }
@@ -271,115 +271,117 @@ namespace wifi {
         // post here the output of the webConverter.py
         #ifdef USE_PROGMEM_WEB_FILES
         if (!settings::getWebSettings().use_spiffs) {
-            server.on("/", HTTP_GET, [] () {
-                sendProgmem(indexhtml, sizeof(indexhtml), W_HTML);
+            server.on("/", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, indexhtml, sizeof(indexhtml), W_HTML);
             });
-            server.on("/attack.html", HTTP_GET, [] () {
-                sendProgmem(attackhtml, sizeof(attackhtml), W_HTML);
+            server.on("/attack.html", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, attackhtml, sizeof(attackhtml), W_HTML);
             });
-            server.on("/index.html", HTTP_GET, [] () {
-                sendProgmem(indexhtml, sizeof(indexhtml), W_HTML);
+            server.on("/index.html", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, indexhtml, sizeof(indexhtml), W_HTML);
             });
-            server.on("/info.html", HTTP_GET, [] () {
-                sendProgmem(infohtml, sizeof(infohtml), W_HTML);
+            server.on("/info.html", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, infohtml, sizeof(infohtml), W_HTML);
             });
-            server.on("/scan.html", HTTP_GET, [] () {
-                sendProgmem(scanhtml, sizeof(scanhtml), W_HTML);
+            server.on("/scan.html", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, scanhtml, sizeof(scanhtml), W_HTML);
             });
-            server.on("/ap_settings.html", HTTP_GET, [] () {
-                sendProgmem(settingshtml, sizeof(settingshtml), W_HTML);
+            server.on("/ap_settings.html", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, settingshtml, sizeof(settingshtml), W_HTML);
             });
-            server.on("/ssids.html", HTTP_GET, [] () {
-                sendProgmem(ssidshtml, sizeof(ssidshtml), W_HTML);
+            server.on("/ssids.html", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, ssidshtml, sizeof(ssidshtml), W_HTML);
             });
-            server.on("/style.css", HTTP_GET, [] () {
-                sendProgmem(stylecss, sizeof(stylecss), W_CSS);
+            server.on("/style.css", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, stylecss, sizeof(stylecss), W_CSS);
             });
-            server.on("/js/attack.js", HTTP_GET, [] () {
-                sendProgmem(attackjs, sizeof(attackjs), W_JS);
+            server.on("/js/attack.js", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, attackjs, sizeof(attackjs), W_JS);
             });
-            server.on("/js/scan.js", HTTP_GET, [] () {
-                sendProgmem(scanjs, sizeof(scanjs), W_JS);
+            server.on("/js/scan.js", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, scanjs, sizeof(scanjs), W_JS);
             });
-            server.on("/js/ap_settings.js", HTTP_GET, [] () {
-                sendProgmem(settingsjs, sizeof(settingsjs), W_JS);
+            server.on("/js/ap_settings.js", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, settingsjs, sizeof(settingsjs), W_JS);
             });
-            server.on("/js/site.js", HTTP_GET, [] () {
-                sendProgmem(sitejs, sizeof(sitejs), W_JS);
+            server.on("/js/site.js", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, sitejs, sizeof(sitejs), W_JS);
             });
-            server.on("/js/ssids.js", HTTP_GET, [] () {
-                sendProgmem(ssidsjs, sizeof(ssidsjs), W_JS);
+            server.on("/js/ssids.js", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, ssidsjs, sizeof(ssidsjs), W_JS);
             });
-            server.on("/lang/cn.lang", HTTP_GET, [] () {
-                sendProgmem(cnlang, sizeof(cnlang), W_JSON);
+            server.on("/lang/cn.lang", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, cnlang, sizeof(cnlang), W_JSON);
             });
-            server.on("/lang/cs.lang", HTTP_GET, [] () {
-                sendProgmem(cslang, sizeof(cslang), W_JSON);
+            server.on("/lang/cs.lang", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, cslang, sizeof(cslang), W_JSON);
             });
-            server.on("/lang/de.lang", HTTP_GET, [] () {
-                sendProgmem(delang, sizeof(delang), W_JSON);
+            server.on("/lang/de.lang", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, delang, sizeof(delang), W_JSON);
             });
-            server.on("/lang/en.lang", HTTP_GET, [] () {
-                sendProgmem(enlang, sizeof(enlang), W_JSON);
+            server.on("/lang/en.lang", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, enlang, sizeof(enlang), W_JSON);
             });
-            server.on("/lang/es.lang", HTTP_GET, [] () {
-                sendProgmem(eslang, sizeof(eslang), W_JSON);
+            server.on("/lang/es.lang", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, eslang, sizeof(eslang), W_JSON);
             });
-            server.on("/lang/fi.lang", HTTP_GET, [] () {
-                sendProgmem(filang, sizeof(filang), W_JSON);
+            server.on("/lang/fi.lang", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, filang, sizeof(filang), W_JSON);
             });
-            server.on("/lang/fr.lang", HTTP_GET, [] () {
-                sendProgmem(frlang, sizeof(frlang), W_JSON);
+            server.on("/lang/fr.lang", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, frlang, sizeof(frlang), W_JSON);
             });
-            server.on("/lang/it.lang", HTTP_GET, [] () {
-                sendProgmem(itlang, sizeof(itlang), W_JSON);
+            server.on("/lang/it.lang", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, itlang, sizeof(itlang), W_JSON);
             });
-            server.on("/lang/ru.lang", HTTP_GET, [] () {
-                sendProgmem(rulang, sizeof(rulang), W_JSON);
+            server.on("/lang/ru.lang", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, rulang, sizeof(rulang), W_JSON);
             });
-            server.on("/lang/tlh.lang", HTTP_GET, [] () {
-                sendProgmem(tlhlang, sizeof(tlhlang), W_JSON);
+            server.on("/lang/tlh.lang", HTTP_GET, [] (AsyncWebServerRequest *request) {
+                sendProgmem(request, tlhlang, sizeof(tlhlang), W_JSON);
             });
         }
-        server.on(str(W_DEFAULT_LANG).c_str(), HTTP_GET, [] () {
+        server.on("/lang/default.lang", HTTP_GET, [] (AsyncWebServerRequest *request) {
             if (!settings::getWebSettings().use_spiffs) {
-                if (String(settings::getWebSettings().lang) == String(F("cn"))) sendProgmem(cnlang, sizeof(cnlang), W_JSON);
-                else if (String(settings::getWebSettings().lang) == String(F("cs"))) sendProgmem(cslang, sizeof(cslang), W_JSON);
-                else if (String(settings::getWebSettings().lang) == String(F("de"))) sendProgmem(delang, sizeof(delang), W_JSON);
-                else if (String(settings::getWebSettings().lang) == String(F("en"))) sendProgmem(enlang, sizeof(enlang), W_JSON);
-                else if (String(settings::getWebSettings().lang) == String(F("es"))) sendProgmem(eslang, sizeof(eslang), W_JSON);
-                else if (String(settings::getWebSettings().lang) == String(F("fi"))) sendProgmem(filang, sizeof(filang), W_JSON);
-                else if (String(settings::getWebSettings().lang) == String(F("fr"))) sendProgmem(frlang, sizeof(frlang), W_JSON);
-                else if (String(settings::getWebSettings().lang) == String(F("it"))) sendProgmem(itlang, sizeof(itlang), W_JSON);
-                else if (String(settings::getWebSettings().lang) == String(F("ru"))) sendProgmem(rulang, sizeof(rulang), W_JSON);
-                else if (String(settings::getWebSettings().lang) == String(F("tlh"))) sendProgmem(tlhlang, sizeof(tlhlang), W_JSON);
+                if (String(settings::getWebSettings().lang) == String(F("cn"))) sendProgmem(request, cnlang, sizeof(cnlang), W_JSON);
+                else if (String(settings::getWebSettings().lang) == String(F("cs"))) sendProgmem(request, cslang, sizeof(cslang), W_JSON);
+                else if (String(settings::getWebSettings().lang) == String(F("de"))) sendProgmem(request, delang, sizeof(delang), W_JSON);
+                else if (String(settings::getWebSettings().lang) == String(F("en"))) sendProgmem(request, enlang, sizeof(enlang), W_JSON);
+                else if (String(settings::getWebSettings().lang) == String(F("es"))) sendProgmem(request, eslang, sizeof(eslang), W_JSON);
+                else if (String(settings::getWebSettings().lang) == String(F("fi"))) sendProgmem(request, filang, sizeof(filang), W_JSON);
+                else if (String(settings::getWebSettings().lang) == String(F("fr"))) sendProgmem(request, frlang, sizeof(frlang), W_JSON);
+                else if (String(settings::getWebSettings().lang) == String(F("it"))) sendProgmem(request, itlang, sizeof(itlang), W_JSON);
+                else if (String(settings::getWebSettings().lang) == String(F("ru"))) sendProgmem(request, rulang, sizeof(rulang), W_JSON);
+                else if (String(settings::getWebSettings().lang) == String(F("tlh"))) sendProgmem(request, tlhlang, sizeof(tlhlang), W_JSON);
 
-                else handleFileRead(String(F("/web/lang/")) + String(settings::getWebSettings().lang) + String(F(".lang")));
+                else handleFileRead(request, String(F("/web/lang/")) + String(settings::getWebSettings().lang) + String(F(".lang")));
             } else {
-                handleFileRead(String(F("/web/lang/")) + String(settings::getWebSettings().lang) + String(F(".lang")));
+                handleFileRead(request, String(F("/web/lang/")) + String(settings::getWebSettings().lang) + String(F(".lang")));
             }
         });
         #endif /* ifdef USE_PROGMEM_WEB_FILES */
         // ================================================================
 
-        server.on("/run", HTTP_GET, [] () {
-            server.send(200, str(W_TXT), str(W_OK).c_str());
-            String input = server.arg("cmd");
+        server.on("/run", HTTP_GET, [] (AsyncWebServerRequest* request) {
+            request->send(200, "text/plain", "OK");
+            String input = request->arg("cmd");
             cli.exec(input);
         });
 
-        server.on("/attack.json", HTTP_GET, [] () {
-            server.send(200, str(W_JSON), attack.getStatusJSON());
+        server.on("/attack.json", HTTP_GET, [] (AsyncWebServerRequest* request) {
+            String json { attack.getStatusJSON() };
+            request->send(200, "application/json", json);
         });
 
         // aggressively caching static assets
-        server.serveStatic("/js", LittleFS, String(String(ap_settings.path) + "/js").c_str(), "max-age=86400");
+        server.serveStatic("/js", LittleFS, "/web/js", "max-age=86400");
 
         // called when the url is not defined here
         // use it to load content from SPIFFS
-        server.onNotFound([] () {
-            if (!handleFileRead(server.uri())) {
-                server.send(404, str(W_TXT), str(W_FILE_NOT_FOUND));
+        server.onNotFound([] (AsyncWebServerRequest *request) {
+            if (!handleFileRead(request, request->url())) {
+                request->send(404, "text/plain", "ERROR 404 File Not Found");
+                //server.send(404, str(W_TXT), str(W_FILE_NOT_FOUND));
                 //server.send(200, "text/html", indexhtml); 
                 //sendProgmem(indexhtml, sizeof(indexhtml), W_HTML);
             }
@@ -415,7 +417,6 @@ namespace wifi {
 
     void update() {
         if ((mode != wifi_mode_t::off) && !scan.isScanning()) {
-            server.handleClient();
             dns.processNextRequest();
         }
     }
