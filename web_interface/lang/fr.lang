@@ -1,7 +1,7 @@
 {
   "lang": "fr",
   "warning": "ATTENTION",
-  "disclaimer": "Ce projet est seulement à but éducatif et à été conçu pour un but de démonstration seulement.\nNi l'ESP8266 ni le SDK ne sont initialement prévus pour cette utilisation. Gare aux bugs !\n\nÀ n'utiliser qu'avec votre réseau privé et sur vos propres appareils !\n\nCe projet utilise des trames WiFi valides telles que décrites dans le standard IEEE 802.11; a noter qu'aucun blocage ou brouillage n'est effectué sur les fréquences utilisées.\nVeillez à bien vérifier les lois en vigueur dans votre pays avant de vous en servir.\n\nNote: ceux qui parlent de ce projet en tant que \"brouilleur\" ou \"jammer\" ou qui copient le contenu sans fournir d'explications ne font que prouver leur méconnaissance sur le sujet ou leurs intentions de générer des titres putaclic sans respecter la propriété intellectuelle, la communauté ou l'effort fourni pour obtenir un meilleur standard WiFi.\n\nPour plus d'informations sur le sujet, rendez-vous sur:",
+  "disclaimer": "Ce projet est seulement à but éducatif et a été conçu pour un but de démonstration seulement.\nNi l'ESP8266 ni le SDK ne sont initialement prévus pour cette utilisation. Gare aux bugs !\n\nÀ n'utiliser qu'avec votre réseau privé et sur vos propres appareils !\n\nCe projet utilise des trames WiFi valides telles que décrites dans le standard IEEE 802.11; a noter qu'aucun blocage ou brouillage n'est effectué sur les fréquences utilisées.\nVeillez à bien vérifier les lois en vigueur dans votre pays avant de vous en servir.\n\nNote: ceux qui parlent de ce projet en tant que \"brouilleur\" ou \"jammer\" ou qui copient le contenu sans fournir d'explications ne font que prouver leur méconnaissance sur le sujet ou leurs intentions de générer des titres putaclic sans respecter la propriété intellectuelle, la communauté ou l'effort fourni pour obtenir un meilleur standard WiFi.\n\nPour plus d'informations sur le sujet, rendez-vous sur:",
   "disclaimer-button": "J'ai lu, compris et j'accepte le texte ci-dessus",
   "reload": "Rafraîchir",
   "scan": "Scanner",
@@ -16,7 +16,7 @@
   "select_all": "Tout sélectionner",
   "deselect_all": "Tout désélectionner",
   "remove_all": "Tout supprimer",
-  "station_scan_time": "Durée du Scan des points d'accès",
+  "station_scan_time": "Durée du scan des points d'accès",
   "new": "Nouveau",
   "save": "Enregistrer",
   "add": "Ajouter",
